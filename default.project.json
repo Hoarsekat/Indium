@@ -1,6 +1,6 @@
 {
-  "name": "Indium",
-  "tree": {
-    "$path": "src"
-  }
+	"name": "Indium",
+	"tree": {
+		"$path": "src"
+	}
 }

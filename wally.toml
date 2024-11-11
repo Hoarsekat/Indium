@@ -1,0 +1,14 @@
+[package]
+name = "hoarsekat/indium"
+description = "Indium is the prodigal lightweight framework for Roblox inspired by Knit & Weaver"
+version = "0.1.0"
+license = "MIT"
+registry = "https://github.com/UpliftGames/wally-index"
+realm = "shared"
+
+[dependencies]
+Comm = "sleitnick/comm@^1"
+Promise = "evaera/promise@^4"
+
+[place]
+shared-packages = "game.ReplicatedStorage.Packages"

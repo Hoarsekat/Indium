@@ -1,26 +1,22 @@
 {
+	"emitLegacyScripts": false,
 	"name": "Indium-Dev",
 	"tree": {
 		"$className": "DataModel",
 		"ReplicatedStorage": {
-			"$className": "ReplicatedStorage",
-			"$path": "test/shared",
-			"Indium": {
-				"$path": "src"
-			}
-		},
-		"ServerScriptService": {
-			"$className": "ServerScriptService",
-			"Server": {
-				"$path": "test/server"
-			}
-		},
-		"StarterPlayer": {
-			"$className": "StarterPlayer",
-			"StarterPlayerScripts": {
-				"$className": "StarterPlayerScripts",
+			"Packages": {
+				"$path": "Packages",
+				"Indium": {
+					"$path": "src"
+				}
+			},
+			"Tests": {
+                "$className": "Folder",
 				"Client": {
-					"$path": "test/client"
+					"$path": "tests/client"
+				},
+				"Server": {
+					"$path": "tests/server"
 				}
 			}
 		}
