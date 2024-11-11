@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches:
+    - main
+  pull_request:
+    branches:
+    - main
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.1.7
+      - name: Install Rokit
+        uses: kalrnlo/setup-rokit@v1.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Lint
+        run: |
+          selene ./src
+  style:
+      name: Style
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v3
+            - uses: JohnnyMorganz/stylua-action@v2
+              with:
+                  version: latest
+                  token: ${{ secrets.GITHUB_TOKEN }}
+                  args: --check ./src
