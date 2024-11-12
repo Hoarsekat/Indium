@@ -1,5 +1,5 @@
 -- TODO: Add support for creating services after being started
-local Packages = script.Parent.Parent
+local Packages = (script.Parent :: Instance).Parent
 
 local Comm = require(Packages.Comm)
 local Promise = require(Packages.Promise)
