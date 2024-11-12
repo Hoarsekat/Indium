@@ -1,10 +1,15 @@
-local Packages = (script.Parent :: Instance).Parent
+type Middleware = {
+	Inbound: ClientMiddleware?,
+	Outbound: ClientMiddleware?,
+}
 
-local Comm = require(Packages.Comm)
-local Promise = require(Packages.Promise)
-local ClientComm = Comm.ClientComm
+type ClientMiddlewareFn = (args: { any }) -> (boolean, ...any)
 
-type Reference = {
+type ClientMiddleware = { ClientMiddlewareFn }
+
+type PerServiceMiddleware = { [string]: Middleware }
+
+type ControllerDef = {
 	Name: string,
 	[any]: any,
 }
@@ -20,136 +25,171 @@ type Service = {
 
 type IndiumOptions = {
 	ServicePromises: boolean,
+	Middleware: Middleware?,
+	PerServiceMiddleware: PerServiceMiddleware?,
 }
 
-local DefaultOptions = {
+local defaultOptions: IndiumOptions = {
 	ServicePromises = true,
+	Middleware = nil,
+	PerServiceMiddleware = {},
 }
 
-local SelectedOptions = nil
+local selectedOptions = nil
 
 local IndiumClient = {}
 
 IndiumClient.Player = game:GetService("Players").LocalPlayer
 
-local Controllers: { [string]: Controller } = {}
-local Services: { [string]: Services } = {}
-local ServicesFolder = nil
+IndiumClient.Util = (script.Parent :: Instance).Parent
 
-local Started = false
-local StartedComplete = false
-local OnStartedComplete = Instance.new("BindableEvent")
+local Promise = require(IndiumClient.Util.Promise)
+local Comm = require(IndiumClient.Util.Comm)
+local ClientComm = Comm.ClientComm
 
-local function DoesControllerExist(Name: string): boolean
-	local controller: Controller? = Controllers[Name]
+local controllers: { [string]: Controller } = {}
+local services: { [string]: Service } = {}
+local servicesFolder = nil
+
+local started = false
+local startedComplete = false
+local onStartedComplete = Instance.new("BindableEvent")
+
+local function DoesControllerExist(controllerName: string): boolean
+	local controller: Controller? = controllers[controllerName]
 
 	return controller ~= nil
 end
 
 local function GetServicesFolder()
-	if not ServicesFolder then
-		ServicesFolder = (script.Parent :: Instance):WaitForChild("Services")
+	if not servicesFolder then
+		servicesFolder = (script.Parent :: Instance):WaitForChild("Services")
 	end
 
-	return ServicesFolder
+	return servicesFolder
 end
 
-local function BuildService(Name: string)
-	local Folder = GetServicesFolder()
-	local clientComm = ClientComm.new(Folder, SelectedOptions.ServicePromises, Name)
-	local Service = clientComm:BuildObject()
+local function GetMiddlewareForService(serviceName: string)
+	local IndiumMiddleware = if selectedOptions.Middleware ~= nil then selectedOptions.Middleware else {}
+	local serviceMiddleware = selectedOptions.PerServiceMiddleware[serviceName]
 
-	Services[Name] = Service
-
-	return Service
+	return if serviceMiddleware ~= nil then serviceMiddleware else IndiumMiddleware
 end
 
-function IndiumClient:CreateController(ref: Reference): Controller
-	assert(type(ref) == "table", `Controller must be a table; got {type(ref)}`)
-	assert(type(ref.Name) == "string", `Controller.Name must be a string; got {type(ref.Name)}`)
-	assert(#ref.Name > 0, "Controller.Name must be a non-empty string")
-	assert(not DoesControllerExist(ref.Name), `Controller {ref.Name} already exists`)
-	assert(not Started, `Controllers cannot be created after calling "Indium:Start()"`)
+local function BuildService(serviceName: string)
+	local folder = GetServicesFolder()
+	local middleware = GetMiddlewareForService(serviceName)
+	local clientComm = ClientComm.new(folder, selectedOptions.ServicePromises, serviceName)
+	local service = clientComm:BuildObject(middleware.Inbound, middleware.Outbound)
 
-	local controller = ref :: Controller
-	Controllers[controller.Name] = controller
+	services[serviceName] = service
+
+	return service
+end
+
+function IndiumClient.CreateController(controllerDef: ControllerDef): Controller
+	assert(type(controllerDef) == "table", `Controller must be a table; got {type(controllerDef)}`)
+	assert(type(controllerDef.Name) == "string", `Controller.Name must be a string; got {type(controllerDef.Name)}`)
+	assert(#controllerDef.Name > 0, "Controller.Name must be a non-empty string")
+	assert(not DoesControllerExist(controllerDef.Name), `Controller {controllerDef.Name} already exists`)
+	assert(not started, `Controllers cannot be created after calling "Indium.Start()"`)
+
+	local controller = controllerDef :: Controller
+	controllers[controller.Name] = controller
 
 	return controller
 end
 
-function IndiumClient:AddControllers(Parent: Instance): { Controller }
-	assert(not Started, `Controllers cannot be added after calling "Indium:Start()"`)
+function IndiumClient.AddControllers(parent: Instance): { Controller }
+	assert(not started, `Controllers cannot be added after calling "Indium.Start()"`)
 
-	local AddedControllers = {}
-
-	for _, v in Parent:GetDescendants() do
+	local addedControllers = {}
+	for _, v in parent:GetChildren() do
 		if not v:IsA("ModuleScript") then
 			continue
 		end
 
-		table.insert(AddedControllers, require(v))
+		table.insert(addedControllers, require(v))
 	end
 
-	return AddedControllers
+	return addedControllers
 end
 
-function IndiumClient:GetService(Name: string): Service
-	local service = Services[Name]
+function IndiumClient.AddControllersDeep(parent: Instance): { Controller }
+	assert(not started, `Controllers cannot be added after calling "Indium.Start()"`)
+
+	local addedControllers = {}
+	for _, v in parent:GetDescendants() do
+		if not v:IsA("ModuleScript") then
+			continue
+		end
+
+		table.insert(addedControllers, require(v))
+	end
+
+	return addedControllers
+end
+
+function IndiumClient.GetService(serviceName: string): Service
+	local service = services[serviceName]
 	if service then
 		return service
 	end
 
-	assert(Started, "Cannot call GetService until Indium has been started")
-	assert(type(Name) == "string", `Name must be a string; got {type(Name)}`)
+	assert(started, "Cannot call GetService until Indium has been started")
+	assert(type(serviceName) == "string", `ServiceName must be a string; got {type(serviceName)}`)
 
-	return BuildService(Name)
+	return BuildService(serviceName)
 end
 
-function IndiumClient:GetController(Name: string): Controller
-	local controller = Controllers[Name]
+function IndiumClient.GetController(controllerName: string): Controller
+	local controller = controllers[controllerName]
 	if controller then
 		return controller
 	end
 
-	assert(Started, "Cannot call GetController until Indium has been started")
-	assert(type(Name) == "string", `ControllerName must be a string; got {type(Name)}`)
-	error(`Could not find controller "{Name}". Check to verify a controller with this name exists.`, 2)
+	assert(started, "Cannot call GetController until Indium has been started")
+	assert(type(controllerName) == "string", `ControllerName must be a string; got {type(controllerName)}`)
+	error(`Could not find controller "{controllerName}". Check to verify a controller with this name exists.`, 2)
 end
 
-function IndiumClient:GetControllers(): { [string]: Controller }
-	assert(Started, "Cannot call GetControllers until Indium has been started")
+function IndiumClient.GetControllers(): { [string]: Controller }
+	assert(started, "Cannot call GetControllers until Indium has been started")
 
-	return Controllers
+	return controllers
 end
 
-function IndiumClient:Start(Options: IndiumOptions?)
-	if Started then
+function IndiumClient.Start(options: IndiumOptions?)
+	if started then
 		return Promise.reject("Indium already started")
 	end
 
-	Started = true
+	started = true
 
-	table.freeze(Controllers)
+	table.freeze(controllers)
 
-	if Options == nil then
-		SelectedOptions = DefaultOptions
+	if options == nil then
+		selectedOptions = defaultOptions
 	else
-		assert(typeof(Options) == "table", `IndiumOptions should be a table or nil; got {typeof(Options)}`)
-		SelectedOptions = Options
-		for k, v in DefaultOptions do
-			if SelectedOptions[k] == nil then
-				SelectedOptions[k] = v
+		assert(typeof(options) == "table", `IndiumOptions should be a table or nil; got {typeof(options)}`)
+		selectedOptions = options
+		for k, v in defaultOptions do
+			if selectedOptions[k] == nil then
+				selectedOptions[k] = v
 			end
 		end
 	end
+	if type(selectedOptions.PerServiceMiddleware) ~= "table" then
+		selectedOptions.PerServiceMiddleware = {}
+	end
 
 	return Promise.new(function(resolve)
-		local PromisesStartControllers = {}
+		local promisesStartControllers = {}
 
-		for _, controller in Controllers do
+		for _, controller in controllers do
 			if type(controller.IndiumInit) == "function" then
 				table.insert(
-					PromisesStartControllers,
+					promisesStartControllers,
 					Promise.new(function(r)
 						debug.setmemorycategory(controller.Name)
 						controller:IndiumInit()
@@ -159,9 +199,9 @@ function IndiumClient:Start(Options: IndiumOptions?)
 			end
 		end
 
-		resolve(Promise.all(PromisesStartControllers))
+		resolve(Promise.all(promisesStartControllers))
 	end):andThen(function()
-		for _, controller in Controllers do
+		for _, controller in controllers do
 			if type(controller.IndiumStart) == "function" then
 				task.spawn(function()
 					debug.setmemorycategory(controller.Name)
@@ -170,20 +210,20 @@ function IndiumClient:Start(Options: IndiumOptions?)
 			end
 		end
 
-		StartedComplete = true
-		OnStartedComplete:Fire()
+		startedComplete = true
+		onStartedComplete:Fire()
 
 		task.defer(function()
-			OnStartedComplete:Destroy()
+			onStartedComplete:Destroy()
 		end)
 	end)
 end
 
-function IndiumClient:OnStart()
-	if StartedComplete then
+function IndiumClient.OnStart()
+	if startedComplete then
 		return Promise.resolve()
 	else
-		return Promise.fromEvent(OnStartedComplete.Event)
+		return Promise.fromEvent(onStartedComplete.Event)
 	end
 end
 

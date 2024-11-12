@@ -1,121 +1,87 @@
--- TODO: Add support for creating services after being started
-local Packages = (script.Parent :: Instance).Parent
+type Middleware = {
+	Inbound: ServerMiddleware?,
+	Outbound: ServerMiddleware?,
+}
 
-local Comm = require(Packages.Comm)
-local Promise = require(Packages.Promise)
-local ServerComm = Comm.ServerComm
+type ServerMiddlewareFn = (player: Player, args: { any }) -> (boolean, ...any)
 
---[=[
-    @interface Reference
-    .Name string
-    .Client table?
-    .[any] any
-    @within IndiumServer
-    Acts as a reference to new services.
-]=]
---
-type Reference = {
+type ServerMiddleware = { ServerMiddlewareFn }
+
+type ServiceDef = {
 	Name: string,
 	Client: { [any]: any }?,
+	Middleware: Middleware?,
 	[any]: any,
 }
 
---[=[
-    @interface Service
-    .Name string
-    .Client ServiceClient
-    .Communication Comm
-    .[any] any
-    @within IndiumServer
-]=]
---
 type Service = {
 	Name: string,
 	Client: ServiceClient,
-	Communication: any,
+	IndiumComm: any,
 	[any]: any,
 }
 
---[=[
-    @interface ServiceClient
-    .Server Service
-    .[any] any
-    @within IndiumServer
-]=]
---
 type ServiceClient = {
 	Server: Service,
 	[any]: any,
 }
 
---[=[
-    @class IndiumServer
-    @server
-    Allows for the creation of services and any bridges between client communication.
+type IndiumOptions = {
+	Middleware: Middleware?,
+}
 
-    ```lua
-    local Indium = require(path.to.Indium)
+local defaultOptions: IndiumOptions = {
+	Middleware = nil,
+}
 
-    -- Requires and preloads modules within a specified folder:
-    Indium.AddServices(path.to.Services)
+local selectedOptions = nil
 
-    -- Starts the Indium server:
-    Indium.Start():andThen(function()
-        print("Indium has loaded on the server!")
-    end):catch(warn)
-    ```
-]=]
---
 local IndiumServer = {}
 
-local CommFolder = Instance.new("Folder")
-CommFolder.Name = "Services"
+IndiumServer.Util = (script.Parent :: Instance).Parent
 
-local Services: { [string]: Service } = {}
-local Started = false
-local StartedComplete = false
-local OnStartedComplete = Instance.new("BindableEvent")
+local SIGNAL_MARKER = newproxy(true)
+getmetatable(SIGNAL_MARKER).__tostring = function()
+	return "SIGNAL_MARKER"
+end
 
-local function DoesServiceExist(ServiceName: string): boolean
-	local service: Service? = Services[ServiceName]
+local UNRELIABLE_SIGNAL_MARKER = newproxy(true)
+getmetatable(UNRELIABLE_SIGNAL_MARKER).__tostring = function()
+	return "UNRELIABLE_SIGNAL_MARKER"
+end
+
+local PROPERTY_MARKER = newproxy(true)
+getmetatable(PROPERTY_MARKER).__tostring = function()
+	return "PROPERTY_MARKER"
+end
+
+local IndiumRepServiceFolder = Instance.new("Folder")
+IndiumRepServiceFolder.Name = "Services"
+
+local Promise = require(IndiumServer.Util.Promise)
+local Comm = require(IndiumServer.Util.Comm)
+local ServerComm = Comm.ServerComm
+
+local services: { [string]: Service } = {}
+local started = false
+local startedComplete = false
+local onStartedComplete = Instance.new("BindableEvent")
+
+local function DoesServiceExist(serviceName: string): boolean
+	local service: Service? = services[serviceName]
 
 	return service ~= nil
 end
 
---[=[
-    Creates and returns a new service.
+function IndiumServer.CreateService(serviceDef: ServiceDef): Service
+	assert(type(serviceDef) == "table", `Service must be a table; got {type(serviceDef)}`)
+	assert(type(serviceDef.Name) == "string", `Service.Name must be a string; got {type(serviceDef.Name)}`)
+	assert(#serviceDef.Name > 0, "Service.Name must be a non-empty string")
+	assert(not DoesServiceExist(serviceDef.Name), `Service "{serviceDef.Name}" already exists`)
+	assert(not started, `Services cannot be created after calling "Indium.Start()"`)
 
-    :::caution
-    While creating a service after Indium starts is fine, it is heavily advised against.
-    :::
-    ```lua
-    -- Create an example service
-    local ExampleService = Indium.CreateService({
-        Name = "ExampleService",
-        Client = {},
-    })
-
-    -- IndiumStart is called after Indium is initialized
-    function ExampleService:IndiumStart()
-        print(self.Name, "has started!")
-    end
-
-    -- IndiumInit is called when Indium is first started
-    function ExampleService:IndiumInit()
-        print(self.Name, "has initialized!")
-    end
-    ```
-]=]
---
-function IndiumServer:CreateService(ref: Reference): Service
-	assert(type(ref) == "table", `Service must be a table; got {type(ref)}`)
-	assert(type(ref.Name) == "string", `Service.Name must be a string; got {type(ref.Name)}`)
-	assert(#ref.Name > 0, "Service.Name must be a non-empty string")
-	assert(not DoesServiceExist(ref.Name), `Service "{ref.Name}" already exists`)
-	assert(not Started, `Services cannot be created after calling "Indium:Start()"`)
-
-	local service = ref
-	service.IndiumComm = ServerComm.new(CommFolder, ref.Name)
+	local service = serviceDef
+	service.IndiumComm = ServerComm.new(IndiumRepServiceFolder, serviceDef.Name)
 
 	if type(service.Client) ~= "table" then
 		service.Client = { Server = service }
@@ -125,91 +91,127 @@ function IndiumServer:CreateService(ref: Reference): Service
 		end
 	end
 
-	Services[service.Name] = service
+	services[service.Name] = service
 
 	return service
 end
 
---[=[
-    Requires the descendants of the specified parent that are a module.
-    ```lua
-    Indium.AddServices(path.to.Services)
-    ```
-]=]
---
-function IndiumServer:AddServices(Parent: Instance): { Service }
-	assert(not Started, `Services cannot be added after calling "Indium:Start()"`)
+function IndiumServer.AddServices(parent: Instance): { Service }
+	assert(not started, `Services cannot be added after calling "Indium.Start()"`)
 
-	local AddedServices = {}
-
-	for _, v in Parent:GetDescendants() do
+	local addedServices = {}
+	for _, v in parent:GetChildren() do
 		if not v:IsA("ModuleScript") then
 			continue
 		end
 
-		table.insert(AddedServices, require(v))
+		table.insert(addedServices, require(v))
 	end
 
-	return AddedServices
+	return addedServices
 end
 
---[=[
-    Gets the service from the name that is specified.
-]=]
---
-function IndiumServer:GetService(Name: string): Service
-	assert(Started, "Cannot call GetService until Indium has been started")
-	assert(type(Name) == "string", `Name must be a string; got {type(Name)}`)
+function IndiumServer.AddServicesDeep(parent: Instance): { Service }
+	assert(not started, `Services cannot be added after calling "Indium.Start()"`)
 
-	return assert(Services[Name], `Could not find service "{Name}"`) :: Service
-end
+	local addedServices = {}
+	for _, v in parent:GetDescendants() do
+		if not v:IsA("ModuleScript") then
+			continue
+		end
 
---[=[
-    @return Promise
-    Starts Indium and should only be called once.
-
-    You may create services _before_ and _after_ Indium starts.
-
-    :::caution
-    There is currently no option to add middleware.
-    This feature will be added soon.
-    :::
-
-    ```lua
-    Indium:Start():andThen(function()
-        print("Indium started!")
-    end):catch(warn)
-    ```
-]=]
---
-function IndiumServer:Start()
-	if Started then
-		return Promise.reject("Indium has already started")
+		table.insert(addedServices, require(v))
 	end
 
-	Started = true
+	return addedServices
+end
 
-	table.freeze(Services)
+function IndiumServer.GetService(serviceName: string): Service
+	assert(started, "Cannot call GetService until Indium has been started")
+	assert(type(serviceName) == "string", `ServiceName must be a string; got {type(serviceName)}`)
+
+	return assert(services[serviceName], `Could not find service "{serviceName}"`) :: Service
+end
+
+function IndiumServer.GetServices(): { [string]: Service }
+	assert(started, "Cannot call GetServices until Indium has been started")
+
+	return services
+end
+
+function IndiumServer.CreateSignal()
+	return SIGNAL_MARKER
+end
+
+function IndiumServer.CreateUnreliableSignal()
+	return UNRELIABLE_SIGNAL_MARKER
+end
+
+function IndiumServer.CreateProperty(initialValue: any)
+	return { PROPERTY_MARKER, initialValue }
+end
+
+function IndiumServer.Start(options: IndiumOptions?)
+	if started then
+		return Promise.reject("Indium already started")
+	end
+
+	started = true
+
+	table.freeze(services)
+
+	if options == nil then
+		selectedOptions = defaultOptions
+	else
+		assert(typeof(options) == "table", `IndiumOptions should be a table or nil; got {typeof(options)}`)
+		selectedOptions = options
+		for k, v in defaultOptions do
+			if selectedOptions[k] == nil then
+				selectedOptions[k] = v
+			end
+		end
+	end
 
 	return Promise.new(function(resolve)
-		local PromisesInitServices = {}
+		local IndiumMiddleware = if selectedOptions.Middleware ~= nil then selectedOptions.Middleware else {}
 
-		for _, service in Services do
+		for _, service in services do
+			local middleware = if service.Middleware ~= nil then service.Middleware else {}
+			local inbound = if middleware.Inbound ~= nil then middleware.Inbound else IndiumMiddleware.Inbound
+			local outbound = if middleware.Outbound ~= nil then middleware.Outbound else IndiumMiddleware.Outbound
+
+			service.Middleware = nil
+
+			for k, v in service.Client do
+				if type(v) == "function" then
+					service.IndiumComm:WrapMethod(service.Client, k, inbound, outbound)
+				elseif v == SIGNAL_MARKER then
+					service.Client[k] = service.IndiumComm:CreateSignal(k, false, inbound, outbound)
+				elseif v == UNRELIABLE_SIGNAL_MARKER then
+					service.Client[k] = service.IndiumComm:CreateSignal(k, true, inbound, outbound)
+				elseif type(v) == "table" and v[1] == PROPERTY_MARKER then
+					service.Client[k] = service.IndiumComm:CreateProperty(k, v[2], inbound, outbound)
+				end
+			end
+		end
+
+		local promisesInitServices = {}
+		for _, service in services do
 			if type(service.IndiumInit) == "function" then
 				table.insert(
-					PromisesInitServices,
-					Promise.new(function(res)
+					promisesInitServices,
+					Promise.new(function(r)
 						debug.setmemorycategory(service.Name)
 						service:IndiumInit()
-						res()
+						r()
 					end)
 				)
 			end
 		end
 
-		resolve(Promise.all(PromisesInitServices))
+		resolve(Promise.all(promisesInitServices))
 	end):andThen(function()
-		for _, service in Services do
+		for _, service in services do
 			if type(service.IndiumStart) == "function" then
 				task.spawn(function()
 					debug.setmemorycategory(service.Name)
@@ -218,33 +220,22 @@ function IndiumServer:Start()
 			end
 		end
 
-		StartedComplete = true
-		OnStartedComplete:Fire()
+		startedComplete = true
+		onStartedComplete:Fire()
 
 		task.defer(function()
-			OnStartedComplete:Destroy()
+			onStartedComplete:Destroy()
 		end)
 
-		CommFolder.Parent = script.Parent
+		IndiumRepServiceFolder.Parent = script.Parent
 	end)
 end
 
---[=[
-    @return Promise
-    Returns a promise that is resolved once Indium has started.
-    ```lua
-    Indium.OnStart():andThen(function()
-        local ExampleService = Indium.Services.ExampleService
-        ExampleService:DoSomething()
-    end):catch(warn)
-    ```
-]=]
---
 function IndiumServer.OnStart()
-	if StartedComplete then
+	if startedComplete then
 		return Promise.resolve()
 	else
-		return Promise.fromEvent(OnStartedComplete.Event)
+		return Promise.fromEvent(onStartedComplete.Event)
 	end
 end
 
