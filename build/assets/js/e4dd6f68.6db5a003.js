@@ -1,0 +1,1 @@
+"use strict";(self.webpackChunkdocs=self.webpackChunkdocs||[]).push([[323],{63891:s=>{s.exports=JSON.parse('{"sourceUrl":"https://github.com/Hoarsekat/Indium/blob/master","baseUrl":"/Indium/","classOrder":[],"apiCategories":[]}')}}]);

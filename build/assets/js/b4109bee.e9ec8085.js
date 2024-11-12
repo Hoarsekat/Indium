@@ -1,0 +1,1 @@
+"use strict";(self.webpackChunkdocs=self.webpackChunkdocs||[]).push([[347],{7636:e=>{e.exports=JSON.parse('[{"type":"link","href":"/api/IndiumServer","label":"\u200bIndium\u200bServer"}]')}}]);
