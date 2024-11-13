@@ -35,8 +35,8 @@ jobs:
                   args: --check ./src
   publish:
       name: Publish
+      runs-on: ubuntu-latest
         steps:
-          runs-on: ubuntu-latest
           steps:
             - name: Publish to Wally
                 env: 
