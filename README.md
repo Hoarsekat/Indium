@@ -12,7 +12,7 @@ description: >-
 
 The main "cool part" about Indium is the BDD-style structure inspired by Roblox's TestEZ library. Here is an example of the creation of an Indium service:
 
-```etlua
+```lua
 -- ExampleService.lua
 
 -- // Services
