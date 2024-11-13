@@ -1,19 +1,36 @@
 name: CI
 
-on: push
+on:
+  push:
+    branches:
+    - main
+  pull_request:
+    branches:
+    - main
 
-jobs: 
+jobs:
 
-  deploy:
-    if: ${{ github.ref == 'refs/heads/main' }}
+  lint:
+    name: Lint
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout Main
-        uses: actions/checkout@v3
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-      - name: Run Stylua
-        run: stylua lib --check
+    - name: Install Aftman
+      uses: ok-nick/setup-aftman@v0.4.2
 
-      - name: Run Selene
-        run : selene lib
+    - name: Lint
+      run: |
+        selene ./src
+
+  style:
+    name: Styling
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: JohnnyMorganz/stylua-action@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        version: v0.20.0
+        args: --check ./src
