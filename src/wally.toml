@@ -1,5 +1,5 @@
 [package]
-name = "hoarsekat/indium"
+name = "hoarsekat/Indium"
 description = "Indium is a powerful, lightweight BDD-style game framework inspired by the likes of Knit and Weaver"
 version = "0.1.0"
 license = "MIT"
