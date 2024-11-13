@@ -16,9 +16,6 @@ jobs:
       - name: Install Dependencies
         run: wally install
 
-      - name: Create Packages Directory
-        run: mkdir -p Packages
-
       - name: Run Stylua
         run: stylua lib --check
 
