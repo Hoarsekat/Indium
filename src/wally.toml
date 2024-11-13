@@ -1,0 +1,11 @@
+[package]
+name = "hoarsekat/indium"
+description = "Indium is a powerful, lightweight BDD-style game framework inspired by the likes of Knit and Weaver"
+version = "0.1.0"
+license = "MIT"
+registry = "https://github.com/UpliftGames/wally-index"
+realm = "shared"
+
+[dependencies]
+Comm = "sleitnick/comm@^1"
+Promise = "evaera/promise@^4"
