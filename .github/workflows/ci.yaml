@@ -8,31 +8,12 @@ jobs:
     if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
 
-
     steps:
       - name: Checkout Main
         uses: actions/checkout@v3
-
-      - name: Install Dependencies
-        run: wally install
 
       - name: Run Stylua
         run: stylua lib --check
 
       - name: Run Selene
         run : selene lib
-
-      - name: Get Release from wally.toml
-        uses: SebRollen/toml-action@v1.0.0
-        id: read_toml
-        with: 
-          file: 'wally.toml'
-          field: 'package.version'
-
-      - name: Publish to Wally
-        env: 
-          WALLY_TOKEN: ${{ secrets.WALLY_AUTH_TOKEN }}
-        run: |
-          mkdir =p ~/.wally
-          printf "[tokens]\n\"https://api.wally.run/\" = \"%s\"" "$WALLY_TOKEN" >> ~/.wally/auth.toml
-          wally publish
