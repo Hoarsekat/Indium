@@ -24,7 +24,7 @@ local indium = require(packages:WaitForChild("Indium"))
 
 -- // Create a basic service
 local service = indium.create.service({
-    name: string = "ExampleService",
+    name = "ExampleService",
     client = {},
 })
 
